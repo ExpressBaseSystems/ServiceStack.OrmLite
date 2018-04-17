@@ -2,8 +2,9 @@
 
   <PropertyGroup>
     <TargetFrameworks>netstandard2.0</TargetFrameworks>
-    <AssemblyName>ServiceStack.OrmLite</AssemblyName>
-    <PackageId>ServiceStack.OrmLite</PackageId>
+    <AssemblyName>FOSS.ServiceStack.OrmLite.Core</AssemblyName>
+    <PackageId>FOSS.ServiceStack.OrmLite.Core</PackageId>
+    <PackageVersion>5.0.2</PackageVersion>
     <GenerateAssemblyTitleAttribute>false</GenerateAssemblyTitleAttribute>
     <GenerateAssemblyDescriptionAttribute>false</GenerateAssemblyDescriptionAttribute>
     <GenerateAssemblyConfigurationAttribute>false</GenerateAssemblyConfigurationAttribute>
