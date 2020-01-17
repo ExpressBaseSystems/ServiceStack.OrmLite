@@ -1,5 +1,6 @@
 using System;
 using System.Data;
+using ServiceStack.Logging;
 
 namespace ServiceStack.OrmLite
 {
@@ -34,13 +35,15 @@ namespace ServiceStack.OrmLite
 
     public abstract class OrmLiteConverter : IOrmLiteConverter
     {
+        public static ILog Log = LogManager.GetLogger(typeof(OrmLiteConverter));
+
         /// <summary>
         /// RDBMS Dialect this Converter is for. Injected at registration.
         /// </summary>
         public IOrmLiteDialectProvider DialectProvider { get; set; }
 
         /// <summary>
-        /// SQL Column Definiton used in CREATE Table. 
+        /// SQL Column Definition used in CREATE Table. 
         /// </summary>
         public abstract string ColumnDefinition { get; }
 
@@ -135,8 +138,7 @@ namespace ServiceStack.OrmLite
                 case TypeCode.Int64:
                     return Convert.ToInt64(value);
                 case TypeCode.UInt64:
-                    var byteValue = value as byte[];
-                    if (byteValue != null)
+                    if (value is byte[] byteValue)
                         return OrmLiteUtils.ConvertToULong(byteValue);
                     return Convert.ToUInt64(value);
                 case TypeCode.Single:

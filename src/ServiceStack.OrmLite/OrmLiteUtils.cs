@@ -33,27 +33,25 @@ namespace ServiceStack.OrmLite
         internal const string AsyncRequiresNet45Error = "Async support is only available in .NET 4.5 builds";
 
         const int maxCachedIndexFields = 10000;
-        private static Dictionary<IndexFieldsCacheKey, Tuple<FieldDefinition, int, IOrmLiteConverter>[]> indexFieldsCache 
+        private static readonly Dictionary<IndexFieldsCacheKey, Tuple<FieldDefinition, int, IOrmLiteConverter>[]> indexFieldsCache 
             = new Dictionary<IndexFieldsCacheKey, Tuple<FieldDefinition, int, IOrmLiteConverter>[]>(maxCachedIndexFields);
 
-        private static readonly ILog Log = LogManager.GetLogger(typeof(OrmLiteUtils));
+        internal static ILog Log = LogManager.GetLogger(typeof(OrmLiteUtils));
 
         public static void HandleException(Exception ex, string message = null)
         {
             if (OrmLiteConfig.ThrowOnError)
                 throw ex;
 
-            if (message != null)
-            {
-                Log.Error(message, ex);
-            }
-            else
-            {
-                Log.Error(ex);
-            }
+            Log.Error(message ?? ex.Message, ex);
         }
 
         public static void DebugCommand(this ILog log, IDbCommand cmd)
+        {
+            log.Debug(GetDebugString(cmd));
+        }
+
+        public static string GetDebugString(this IDbCommand cmd)
         {
             var sb = StringBuilderCache.Allocate();
 
@@ -62,18 +60,18 @@ namespace ServiceStack.OrmLite
             if (cmd.Parameters.Count > 0)
             {
                 sb.AppendLine()
-                  .Append("PARAMS: ");
+                    .Append("PARAMS: ");
 
                 for (var i = 0; i < cmd.Parameters.Count; i++)
                 {
-                    var p = (IDataParameter)cmd.Parameters[i];
+                    var p = (IDataParameter) cmd.Parameters[i];
                     if (i > 0)
                         sb.Append(", ");
                     sb.Append($"{p.ParameterName}={p.Value}");
                 }
             }
 
-            log.Debug(StringBuilderCache.ReturnAndFree(sb));
+            return StringBuilderCache.ReturnAndFree(sb);
         }
 
         public static T CreateInstance<T>()
@@ -163,21 +161,19 @@ namespace ServiceStack.OrmLite
                 var field = typeFields.GetAccessor(itemName);
                 if (field == null) break;
 
-                var dbValue = values != null
-                    ? values[i]
-                    : reader.GetValue(i);
-
+                var fieldType = field.FieldInfo.FieldType;
+                var converter = dialectProvider.GetConverterBestMatch(fieldType);
+                                
+                var dbValue = converter.GetValue(reader, i, values);
                 if (dbValue == null)
                     continue;
 
-                var fieldType = field.FieldInfo.FieldType;
                 if (dbValue.GetType() == fieldType)
                 {
                     field.PublicSetterRef(ref row, dbValue);
                 }
                 else
                 {
-                    var converter = dialectProvider.GetConverter(fieldType);
                     var fieldValue = converter.FromDbValue(fieldType, dbValue);
                     field.PublicSetterRef(ref row, fieldValue);
                 }
@@ -460,24 +456,35 @@ namespace ServiceStack.OrmLite
         public static Regex VerifyFragmentRegEx = new Regex("([^\\w]|^)+(--|;--|;|%|/\\*|\\*/|@@|@|char|nchar|varchar|nvarchar|alter|begin|cast|create|cursor|declare|delete|drop|end|exec|execute|fetch|insert|kill|open|select|sys|sysobjects|syscolumns|table|update)([^\\w]|$)+",
             RegexOptions.Singleline | RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        public static Regex VerifySqlRegEx = new Regex("([^\\w]|^)+(--|;--|;|%|/\\*|\\*/|@@|@|char|nchar|varchar|nvarchar|alter|begin|cast|create|cursor|declare|delete|drop|end|exec|execute|fetch|insert|kill|open|table|update)([^\\w]|$)+",
+            RegexOptions.Singleline | RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         public static Func<string,string> SqlVerifyFragmentFn { get; set; }
 
-        public static string SqlVerifyFragment(this string sqlFragment)
+        public static bool isUnsafeSql(string sql, Regex verifySql)
         {
-            if (sqlFragment == null)
-                return null;
+            if (sql == null)
+                return false;
 
             if (SqlVerifyFragmentFn != null)
-                return SqlVerifyFragmentFn(sqlFragment);
+            {
+                SqlVerifyFragmentFn(sql);
+                return false;
+            }
 
-            var fragmentToVerify = sqlFragment
+            var fragmentToVerify = sql
                 .StripQuotedStrings('\'')
                 .StripQuotedStrings('"')
                 .StripQuotedStrings('`')
                 .ToLower();
 
-            var match = VerifyFragmentRegEx.Match(fragmentToVerify);
-            if (match.Success)
+            var match = verifySql.Match(fragmentToVerify);
+            return match.Success;
+        }
+
+        public static string SqlVerifyFragment(this string sqlFragment)
+        {
+            if (isUnsafeSql(sqlFragment, VerifyFragmentRegEx))
                 throw new ArgumentException("Potential illegal fragment detected: " + sqlFragment);
 
             return sqlFragment;
@@ -781,7 +788,7 @@ namespace ServiceStack.OrmLite
 
         public static bool IsRefType(this Type fieldType)
         {
-            return (!fieldType.UnderlyingSystemType().IsValueType
+            return (!fieldType.UnderlyingSystemType.IsValueType
                 || JsConfig.TreatValueAsRefTypes.Contains(fieldType.IsGenericType
                     ? fieldType.GetGenericTypeDefinition()
                     : fieldType))
@@ -811,13 +818,34 @@ namespace ServiceStack.OrmLite
             return StringBuilderCache.ReturnAndFree(sb).Trim();
         }
 
-        public static char[] QuotedChars = new[] { '"', '`', '[', ']' };
+        public static char[] QuotedChars = { '"', '`', '[', ']' };
 
-        public static string StripQuotes(this string quotedExpr)
+        public static string StripDbQuotes(this string quotedExpr)
         {
             return quotedExpr.Trim(QuotedChars);
         }
 
+        public static void PrintSql() => OrmLiteConfig.BeforeExecFilter = cmd => Console.WriteLine(cmd.GetDebugString());
+
+        public static void UnPrintSql() => OrmLiteConfig.BeforeExecFilter = null;
+
+        public static StringBuilder CaptureSql()
+        {
+            var sb = StringBuilderCache.Allocate();
+            CaptureSql(sb);
+            return sb;
+        }
+        
+        public static void CaptureSql(StringBuilder sb) =>
+            OrmLiteConfig.BeforeExecFilter = cmd => sb.AppendLine(cmd.GetDebugString());
+
+        public static void UnCaptureSql() => OrmLiteConfig.BeforeExecFilter = null;
+
+        public static string UnCaptureSqlAndFree(StringBuilder sb)
+        {
+            OrmLiteConfig.BeforeExecFilter = null;
+            return StringBuilderCache.ReturnAndFree(sb);
+        }
 
         public static ModelDefinition GetModelDefinition(Type modelType)
         {
@@ -954,15 +982,21 @@ namespace ServiceStack.OrmLite
             }
         }
 
+        [Obsolete("Use dialectProvider.GetNonDefaultValueInsertFields()")]
         public static List<string> GetNonDefaultValueInsertFields<T>(T obj)
+        {
+            return OrmLiteConfig.DialectProvider.GetNonDefaultValueInsertFields(obj);
+        }
+        
+        public static List<string> GetNonDefaultValueInsertFields<T>(this IOrmLiteDialectProvider dialectProvider, T obj)
         {
             var insertFields = new List<string>();
             var modelDef = typeof(T).GetModelDefinition();
             foreach (var fieldDef in modelDef.FieldDefinitionsArray)
             {
-                if (!string.IsNullOrEmpty(fieldDef.DefaultValue))
+                if (!string.IsNullOrEmpty(dialectProvider.GetDefaultValue(fieldDef)))
                 {
-                    var value = fieldDef.GetValue(obj);
+                    var value = fieldDef.GetValue(obj);    
                     if (value == null || value.Equals(fieldDef.FieldTypeDefaultValue))
                         continue;
                 }
@@ -1068,5 +1102,21 @@ namespace ServiceStack.OrmLite
             var model = factoryFn();
             return model;
         }
+
+        public static JoinFormatDelegate JoinAlias(string alias)
+        {
+            return (dialect, tableDef, expr) =>
+                $"{dialect.GetQuotedTableName(tableDef)} {alias} {expr.Replace(dialect.GetQuotedTableName(tableDef), dialect.GetQuotedTableName(alias))}";
+        }
+        
+        /// <summary>
+        /// RDBMS Quoted string 'literal' 
+        /// </summary>
+        /// <returns></returns>
+        public static string QuotedLiteral(string text) => text == null || text.IndexOf('\'') >= 0
+            ? text
+            : "'" + text + "'";
+
+        public static string UnquotedColumnName(string columnExpr) => columnExpr.LastRightPart('.').StripDbQuotes();
     }
 }

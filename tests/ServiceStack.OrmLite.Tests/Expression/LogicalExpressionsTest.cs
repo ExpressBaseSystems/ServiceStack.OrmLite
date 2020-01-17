@@ -2,9 +2,10 @@
 
 namespace ServiceStack.OrmLite.Tests.Expression
 {
+    [TestFixtureOrmLite]
     public class LogicalExpressionsTest : ExpressionsTestBase
     {
-        #region variables
+        public LogicalExpressionsTest(DialectContext context) : base(context) {}
 
         [Test]
         public void Can_select_logical_and_variable_expression()
@@ -21,7 +22,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "test"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -48,7 +49,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "test"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -75,7 +76,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "test"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -87,10 +88,6 @@ namespace ServiceStack.OrmLite.Tests.Expression
             }
         }
 
-        #endregion
-
-        #region method
-
         [Test]
         public void Can_select_logical_and_method_expression()
         {
@@ -101,7 +98,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "test"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -123,7 +120,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "test"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -145,7 +142,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "test"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -156,7 +153,5 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 CollectionAssert.Contains(actual, expected);
             }
         }
-
-        #endregion
-    }
+   }
 }

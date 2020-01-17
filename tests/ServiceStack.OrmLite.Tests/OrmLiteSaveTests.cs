@@ -6,10 +6,11 @@ using ServiceStack.OrmLite.Tests.Shared;
 
 namespace ServiceStack.OrmLite.Tests
 {
-    [TestFixture]
-    public class OrmLiteSaveTests
-        : OrmLiteTestBase
+    [TestFixtureOrmLite]
+    public class OrmLiteSaveTests : OrmLiteProvidersTestBase
     {
+        public OrmLiteSaveTests(DialectContext context) : base(context) {}
+
         [Test]
         public void Save_populates_AutoIncrementId()
         {
@@ -34,7 +35,7 @@ namespace ServiceStack.OrmLite.Tests
         public void Can_disable_AutoIncrement_field()
         {
             //Can't insert in identity column
-            if (Dialect == Dialect.SqlServer || Dialect == Dialect.SqlServer2012)
+            if ((Dialect & Dialect.AnySqlServer) == Dialect)
                 return;
 
             using (var db = OpenDbConnection())

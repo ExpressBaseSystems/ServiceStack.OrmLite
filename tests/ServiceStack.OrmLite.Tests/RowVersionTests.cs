@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Data;
 using System.Linq;
 using NUnit.Framework;
@@ -74,8 +73,11 @@ namespace ServiceStack.OrmLite.Tests
         public long Version { get; set; }
     }
 
-    public class RowVersionTests : OrmLiteTestBase
+    [TestFixtureOrmLite]
+    public class RowVersionTests : OrmLiteProvidersTestBase
     {
+        public RowVersionTests(DialectContext context) : base(context) {}
+
         private IDbConnection db;
 
         [OneTimeSetUp]
@@ -356,6 +358,18 @@ namespace ServiceStack.OrmLite.Tests
             var row = db.SingleById<ModelWithRowVersion>(rowId);
 
             db.Delete(row);
+
+            var count = db.Count<ModelWithRowVersion>(m => m.Id == rowId);
+            Assert.That(count, Is.EqualTo(0));
+        }
+        
+        [Test]
+        public void Can_DeleteById_with_current_rowversion()
+        {
+            var rowId = db.Insert(new ModelWithRowVersion { Text = "Four" }, selectIdentity: true);
+            var row = db.SingleById<ModelWithRowVersion>(rowId);
+
+            db.DeleteById<ModelWithRowVersion>(row.Id, rowVersion:row.RowVersion);
 
             var count = db.Count<ModelWithRowVersion>(m => m.Id == rowId);
             Assert.That(count, Is.EqualTo(0));

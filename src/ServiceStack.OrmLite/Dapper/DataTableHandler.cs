@@ -1,9 +1,8 @@
-﻿using System;
+using System;
 using System.Data;
-#if !NETSTANDARD2_0
 namespace ServiceStack.OrmLite.Dapper
 {
-    sealed class DataTableHandler : SqlMapper.ITypeHandler
+    internal sealed class DataTableHandler : SqlMapper.ITypeHandler
     {
         public object Parse(Type destinationType, object value)
         {
@@ -16,4 +15,3 @@ namespace ServiceStack.OrmLite.Dapper
         }
     }
 }
-#endif

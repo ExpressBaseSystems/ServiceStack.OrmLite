@@ -1,12 +1,12 @@
-﻿using System;
+using System;
 using System.Data;
 using System.Threading;
 
 namespace ServiceStack.OrmLite.Dapper
 {
-    partial class SqlMapper
+    public static partial class SqlMapper
     {
-        class CacheInfo
+        private class CacheInfo
         {
             public DeserializerState Deserializer { get; set; }
             public Func<IDataReader, object>[] OtherDeserializers { get; set; }

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using NUnit.Framework;
 using ServiceStack.Text;
 
@@ -10,9 +11,11 @@ namespace ServiceStack.OrmLite.Tests.Issues
         public DateTime ExpiryDate { get; set; }
     }
 
-    [TestFixture]
-    public class UtcDateTimeIssueTests : OrmLiteTestBase
+    [TestFixtureOrmLite]
+    public class UtcDateTimeIssueTests : OrmLiteProvidersTestBase
     {
+        public UtcDateTimeIssueTests(DialectContext context) : base(context) {}
+
         [Test]
         public void Test_DateTime_Select()
         {
@@ -42,6 +45,34 @@ namespace ServiceStack.OrmLite.Tests.Issues
         }
 
         [Test]
+        public void Can_select_DateTime_by_Range()
+        {
+            using (var db = OpenDbConnection())
+            {
+                db.DropAndCreateTable<TestDate>();
+
+                db.Insert(new TestDate {
+                    Name = "Now",
+                    ExpiryDate = DateTime.Now,
+                });
+                db.Insert(new TestDate {
+                    Name = "Today",
+                    ExpiryDate = DateTime.Now.Date,
+                });
+                db.Insert(new TestDate {
+                    Name = "Tomorrow",
+                    ExpiryDate = DateTime.Now.Date.AddDays(1),
+                });
+
+                var results = db.Select<TestDate>()
+                    .Where(x => x.ExpiryDate >= DateTime.Now.Date && 
+                                x.ExpiryDate < DateTime.Now.Date.AddDays(1));
+                
+                Assert.That(results.Map(x => x.Name), Is.EquivalentTo(new[]{"Now","Today"}));
+            }
+        }
+
+        [Test]
         public void Can_Select_DateTime_with_SelectFmt()
         {
             using (var db = OpenDbConnection())
@@ -64,12 +95,12 @@ namespace ServiceStack.OrmLite.Tests.Issues
                     ExpiryDate = DateTime.UtcNow.AddHours(1)
                 });
 
-                var result = db.Select<TestDate>("ExpiryDate".SqlColumn() + " > @theDate".PreNormalizeSql(db),
+                var result = db.Select<TestDate>("ExpiryDate".SqlColumn(DialectProvider) + " > @theDate".PreNormalizeSql(db),
                     new { theDate = DateTime.UtcNow });
                 db.GetLastSql().Print();
                 Assert.That(result.Count, Is.EqualTo(1));
 
-                result = db.Select<TestDate>("ExpiryDate".SqlColumn() + " > @theDate".PreNormalizeSql(db),
+                result = db.Select<TestDate>("ExpiryDate".SqlColumn(DialectProvider) + " > @theDate".PreNormalizeSql(db),
                     new { theDate = new DateTime(1999, 01, 02) });
                 db.GetLastSql().Print();
                 Assert.That(result.Count, Is.EqualTo(2));

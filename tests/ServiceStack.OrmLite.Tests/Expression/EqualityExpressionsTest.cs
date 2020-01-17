@@ -2,9 +2,10 @@
 
 namespace ServiceStack.OrmLite.Tests.Expression
 {
+    [TestFixtureOrmLite]
     public class EqualityExpressionsTest : ExpressionsTestBase
     {
-        #region int tests
+        public EqualityExpressionsTest(DialectContext context) : base(context) {}
 
         [Test]
         public void Can_select_equals_constant_int_expression()
@@ -16,7 +17,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "4"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -42,7 +43,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "4"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -64,7 +65,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "4"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -86,7 +87,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "4"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -112,7 +113,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "4"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -134,7 +135,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "4"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -146,10 +147,6 @@ namespace ServiceStack.OrmLite.Tests.Expression
             }
         }
 
-        #endregion
-
-        #region bool test
-
         [Test]
         public void Can_select_equals_constant_bool_expression()
         {
@@ -160,7 +157,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "4"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -182,7 +179,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "4"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -208,7 +205,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "4"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -230,7 +227,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "4"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -253,7 +250,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 NullableCol = new TestType { StringColumn = "sometext" }
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -276,7 +273,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 NullableCol = new TestType { StringColumn = "sometext" }
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -302,7 +299,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 NullableCol = new TestType { StringColumn = "sometext" }
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             var actual = OpenDbConnection().Select<TestType>(q => q.NullableCol == columnValue);
 
@@ -310,6 +307,5 @@ namespace ServiceStack.OrmLite.Tests.Expression
             Assert.AreEqual(actual.Count, 10);
             CollectionAssert.DoesNotContain(actual, expected);
         }
-        #endregion
     }
 }

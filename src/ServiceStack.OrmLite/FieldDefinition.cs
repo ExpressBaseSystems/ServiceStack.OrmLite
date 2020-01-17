@@ -36,6 +36,8 @@ namespace ServiceStack.OrmLite
 
         public bool AutoIncrement { get; set; }
 
+        public bool AutoId { get; set; }
+
         public bool IsNullable { get; set; }
 
         public bool IsIndexed { get; set; }
@@ -45,6 +47,8 @@ namespace ServiceStack.OrmLite
         public bool IsClustered { get; set; }
 
         public bool IsNonClustered { get; set; }
+        
+        public string IndexName { get; set; }
 
         public bool IsRowVersion { get; set; }
 
@@ -57,7 +61,7 @@ namespace ServiceStack.OrmLite
         public string CheckConstraint { get; set; }
 
         public bool IsUniqueConstraint { get; set; }
-
+        
         public ForeignKeyConstraint ForeignKey { get; set; }
 
         public GetMemberDelegate GetValueFn { get; set; }
@@ -72,7 +76,7 @@ namespace ServiceStack.OrmLite
         public string GetQuotedName(IOrmLiteDialectProvider dialectProvider)
         {
             return IsRowVersion
-                ? dialectProvider.GetRowVersionColumnName(this).ToString()
+                ? dialectProvider.GetRowVersionSelectColumn(this).ToString()
                 : dialectProvider.GetQuotedColumnName(FieldName);
         }
 
@@ -89,6 +93,8 @@ namespace ServiceStack.OrmLite
         public string ComputeExpression { get; set; }
 
         public string CustomSelect { get; set; }
+
+        public bool RequiresAlias => Alias != null || CustomSelect != null;
 
         public string BelongToModelName { get; set; }
 
@@ -136,6 +142,7 @@ namespace ServiceStack.OrmLite
                 PropertyInfo = PropertyInfo,
                 IsPrimaryKey = IsPrimaryKey,
                 AutoIncrement = AutoIncrement,
+                AutoId = AutoId,
                 IsNullable = IsNullable,
                 IsIndexed = IsIndexed,
                 IsUniqueIndex = IsUniqueIndex,
@@ -180,20 +187,20 @@ namespace ServiceStack.OrmLite
         public string OnUpdate { get; private set; }
         public string ForeignKeyName { get; private set; }
 
-        public string GetForeignKeyName(ModelDefinition modelDef, ModelDefinition refModelDef, INamingStrategy NamingStrategy, FieldDefinition fieldDef)
+        public string GetForeignKeyName(ModelDefinition modelDef, ModelDefinition refModelDef, INamingStrategy namingStrategy, FieldDefinition fieldDef)
         {
             if (ForeignKeyName.IsNullOrEmpty())
             {
                 var modelName = modelDef.IsInSchema
-                    ? modelDef.Schema + "_" + NamingStrategy.GetTableName(modelDef.ModelName)
-                    : NamingStrategy.GetTableName(modelDef.ModelName);
+                    ? $"{modelDef.Schema}_{namingStrategy.GetTableName(modelDef.ModelName)}"
+                    : namingStrategy.GetTableName(modelDef.ModelName);
 
                 var refModelName = refModelDef.IsInSchema
-                    ? refModelDef.Schema + "_" + NamingStrategy.GetTableName(refModelDef.ModelName)
-                    : NamingStrategy.GetTableName(refModelDef.ModelName);
+                    ? $"{refModelDef.Schema}_{namingStrategy.GetTableName(refModelDef.ModelName)}"
+                    : namingStrategy.GetTableName(refModelDef.ModelName);
 
                 var fkName = $"FK_{modelName}_{refModelName}_{fieldDef.FieldName}";
-                return NamingStrategy.ApplyNameRestrictions(fkName);
+                return namingStrategy.ApplyNameRestrictions(fkName);
             }
             return ForeignKeyName;
         }

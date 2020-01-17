@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using NUnit.Framework;
 using ServiceStack.DataAnnotations;
-using ServiceStack.Logging;
 using ServiceStack.Text;
 
 namespace ServiceStack.OrmLite.Tests.UseCase
@@ -117,14 +116,15 @@ namespace ServiceStack.OrmLite.Tests.UseCase
     }
 
 
-    public class PlayerCreateTableUseCase : OrmLiteTestBase
+    [TestFixtureOrmLite]
+    public class PlayerCreateTableUseCase : OrmLiteProvidersTestBase
     {
-        //public PlayerCreateTableUseCase() : base(Dialect.SqlServer) {}
+        public PlayerCreateTableUseCase(DialectContext context) : base(context) {}
 
         [Test]
         public void Can_Create_Player_Tables_and_Save_Data()
         {
-            LogManager.LogFactory = new ConsoleLogFactory(debugEnabled:true);
+//            OrmLiteConfig.BeforeExecFilter = cmd => cmd.GetDebugString().Print();
 
             using (var db = OpenDbConnection())
             {

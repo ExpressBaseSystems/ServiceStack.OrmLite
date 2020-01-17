@@ -1,8 +1,8 @@
-﻿using System.Data;
+using System.Data;
 
 namespace ServiceStack.OrmLite.Dapper
 {
-    partial class SqlMapper
+    public static partial class SqlMapper
     {
         /// <summary>
         /// Implement this interface to pass an arbitrary db specific set of parameters to Dapper

@@ -1,13 +1,14 @@
 ﻿using System.Collections.Generic;
-using System.Dynamic;
 using NUnit.Framework;
 using ServiceStack.OrmLite.Tests.Shared;
 
 namespace ServiceStack.OrmLite.Tests
 {
-    [TestFixture]
-    public class SelectParamTests : OrmLiteTestBase
+    [TestFixtureOrmLite]
+    public class SelectParamTests : OrmLiteProvidersTestBase
     {
+        public SelectParamTests(DialectContext context) : base(context) {}
+
         [Test]
         public void Can_Select_with_Different_APIs()
         {
@@ -32,6 +33,21 @@ namespace ServiceStack.OrmLite.Tests
                 Assert.That(db.SqlList<Person>("SELECT * FROM Person WHERE Age = @age", new { age = 27 }).Count, Is.EqualTo(4));
                 Assert.That(db.SqlList<Person>("SELECT * FROM Person WHERE Age = @age", new Dictionary<string, object> { { "age", 27 } }).Count, Is.EqualTo(4));
                 Assert.That(db.SqlList<Person>("SELECT * FROM Person WHERE Age = @age", new[] { db.CreateParam("age", 27) }).Count, Is.EqualTo(4));
+            }
+        }
+
+        [Test]
+        public void Can_Select_with_Null_param()
+        {
+            using (var db = OpenDbConnection())
+            {
+                db.DropAndCreateTable<Person>();
+                db.InsertAll(Person.Rockstars);
+
+                var dbCmd = db.CreateCommand();//demo code, just for dbCmd.CreateParam
+
+                // for sqlite that works with paramter with DBNull.Value and usual null.
+                Assert.That(db.Select<Person>("FirstName = @firstname", new List<System.Data.IDbDataParameter> { dbCmd.CreateParam("firstname", null) }).Count, Is.EqualTo(0));
             }
         }
     }

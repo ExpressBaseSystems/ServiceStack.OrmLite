@@ -2,8 +2,12 @@
 
 namespace ServiceStack.OrmLite.Tests.Expression
 {
+    [TestFixtureOrmLite]
+
     public class RelationalExpressionsTest : ExpressionsTestBase
     {
+        public RelationalExpressionsTest(DialectContext context) : base(context) {}
+
         [Test]
         public void Can_select_greater_than_expression()
         {
@@ -14,7 +18,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "test"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -36,7 +40,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "test"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -58,7 +62,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "test"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {
@@ -79,7 +83,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 StringColumn = "test"
             };
 
-            EstablishContext(10, expected);
+            Init(10, expected);
 
             using (var db = OpenDbConnection())
             {

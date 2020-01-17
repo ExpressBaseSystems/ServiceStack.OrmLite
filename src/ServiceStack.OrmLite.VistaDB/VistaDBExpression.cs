@@ -31,7 +31,7 @@ namespace ServiceStack.OrmLite.VistaDB
                 if (setFields.Length > 0)
                     setFields.Append(", ");
 
-                var param = DialectProvider.AddParam(dbCmd, value, fieldDef);
+                var param = DialectProvider.AddUpdateParam(dbCmd, value, fieldDef);
                 setFields
                     .Append(DialectProvider.GetQuotedColumnName(fieldDef.FieldName))
                     .Append("=")
@@ -65,6 +65,11 @@ namespace ServiceStack.OrmLite.VistaDB
             return length != null
                 ? $"substring({quotedColumn}, {startIndex}, {length.Value})"
                 : $"substring({quotedColumn}, {startIndex}, LEN({quotedColumn}) - {startIndex} + 1)";
+        }
+
+        protected override PartialSqlString ToLengthPartialString(object arg)
+        {
+            return new PartialSqlString($"LEN({arg})");
         }
     }
 }

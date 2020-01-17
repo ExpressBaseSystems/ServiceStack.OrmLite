@@ -7,10 +7,10 @@ namespace ServiceStack.OrmLite.PostgreSQL.Converters
 {
     public class PostgreSqlStringConverter : StringConverter
     {
-        public override string ColumnDefinition
-        {
-            get { return "TEXT"; }
-        }
+        public override string ColumnDefinition => "TEXT";
+
+        //https://dba.stackexchange.com/questions/189876/size-limit-of-character-varying-postgresql
+        public override int MaxVarCharLength => UseUnicode ? 10485760 / 2 : 10485760;
 
         public override string GetColumnDefinition(int? stringLength)
         {
@@ -18,16 +18,13 @@ namespace ServiceStack.OrmLite.PostgreSQL.Converters
             if (stringLength == null || stringLength == StringLengthAttribute.MaxText)
                 return ColumnDefinition;
 
-            return "VARCHAR({0})".Fmt(stringLength.Value);
+            return $"VARCHAR({stringLength.Value})";
         }
     }
 
     public class PostgreSqlCharArrayConverter : CharArrayConverter
     {
-        public override string ColumnDefinition
-        {
-            get { return "TEXT"; }
-        }
+        public override string ColumnDefinition => "TEXT";
 
         public override string GetColumnDefinition(int? stringLength)
         {

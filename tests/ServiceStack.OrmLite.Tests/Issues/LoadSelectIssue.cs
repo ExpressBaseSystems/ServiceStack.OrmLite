@@ -1,20 +1,20 @@
 ﻿using System;
 using System.Data;
+using System.Threading.Tasks;
 using NUnit.Framework;
-using ServiceStack.Data;
 using ServiceStack.DataAnnotations;
-using ServiceStack.Logging;
-using ServiceStack.OrmLite.SqlServer;
 using ServiceStack.Text;
 
 namespace ServiceStack.OrmLite.Tests.Issues
 {
-    [TestFixture]
-    public class LoadSelectIssue : OrmLiteTestBase
+    [TestFixtureOrmLite]
+    public class LoadSelectIssue : OrmLiteProvidersTestBase
     {
+        public LoadSelectIssue(DialectContext context) : base(context) {}
+
         public class PlayerEquipment
         {
-            public string Id => PlayerId + "/" + ItemId;
+            public string Id => $"{PlayerId}/{ItemId}";
 
             public int PlayerId { get; set; }
 
@@ -143,7 +143,6 @@ namespace ServiceStack.OrmLite.Tests.Issues
         [Test]
         public void Can_execute_LoadSelect_when_child_references_implement_IHasSoftDelete()
         {
-            LogManager.LogFactory = new ConsoleLogFactory(debugEnabled:true);
             // Automatically filter out all soft deleted records, for ALL table types.
             OrmLiteConfig.SqlExpressionSelectFilter = q =>
             {
@@ -188,6 +187,45 @@ namespace ServiceStack.OrmLite.Tests.Issues
             }
 
             OrmLiteConfig.SqlExpressionSelectFilter = null;
+        }
+        
+        public class Person
+        {
+            [AutoIncrement]
+            public int Id { get; set; }
+
+            public string Name { get; set; }
+
+            public int ContactId { get; set; }
+            
+            [Reference]
+            public Contact Contact { get; set; }
+        }
+        
+        public class Contact
+        {
+            [AutoIncrement]
+            public int Id { get; set; }
+
+            public string Mobile { get; set; }
+        }
+
+        [Test]
+        public async Task Can_order_by_parent_table_in_LoadSelectAsync()
+        {
+            OrmLiteConfig.BeforeExecFilter = cmd => cmd.GetDebugString().Print(); 
+            
+            using (var db = OpenDbConnection())
+            {
+                db.DropAndCreateTable<Person>();
+                db.DropAndCreateTable<Contact>();
+                
+                string[] include = null; 
+                var personQuery = db.From<Person>();
+                personQuery.OrderByFields("Id");
+
+                var results = await db.LoadSelectAsync(personQuery, include);
+           }
         }
 
     }

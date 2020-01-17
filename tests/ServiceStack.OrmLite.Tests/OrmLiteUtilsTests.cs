@@ -4,7 +4,6 @@ namespace ServiceStack.OrmLite.Tests
 {
     [TestFixture]
     public class OrmLiteUtilsTests
-        : OrmLiteTestBase
     {
         [Test]
         public void ParseTokens()
@@ -14,6 +13,15 @@ namespace ServiceStack.OrmLite.Tests
             var tokens = OrmLiteUtils.ParseTokens(sql);
 
             Assert.AreEqual(1,  tokens.Count);
+        }
+
+        [Test]
+        public void Can_UnquotedColumnName()
+        {
+            Assert.That(OrmLiteUtils.UnquotedColumnName("Col"), Is.EqualTo("Col"));
+            Assert.That(OrmLiteUtils.UnquotedColumnName("\"Col\""), Is.EqualTo("Col"));
+            Assert.That(OrmLiteUtils.UnquotedColumnName("Table.Col"), Is.EqualTo("Col"));
+            Assert.That(OrmLiteUtils.UnquotedColumnName("\"Table\".\"Col\""), Is.EqualTo("Col"));
         }
     }
 }

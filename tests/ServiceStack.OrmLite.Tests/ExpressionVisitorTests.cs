@@ -4,14 +4,14 @@ using System.Data;
 using System.Linq;
 using NUnit.Framework;
 using ServiceStack.DataAnnotations;
-using ServiceStack.Logging;
-using ServiceStack.Text;
 
 namespace ServiceStack.OrmLite.Tests
 {
-    [TestFixture]
-    public class ExpressionVisitorTests : OrmLiteTestBase
+    [TestFixtureOrmLite]
+    public class ExpressionVisitorTests : OrmLiteProvidersTestBase
     {
+        public ExpressionVisitorTests(DialectContext context) : base(context) {}
+
         private IDbConnection Db;
 
         [SetUp]
@@ -774,7 +774,7 @@ namespace ServiceStack.OrmLite.Tests
             System.Linq.Expressions.Expression<Func<TestType, object>> order = x => i > 0 ? x.BoolCol : x.TextCol.Contains("qwer");
             var q = Db.From<TestType>().OrderBy(order).ThenBy(x => x.Id);
             Assert.That(q.ToSelectStatement().ToLower(), Does.Not.Contain("="));
-            Assert.That(q.ToSelectStatement().ToLower(), Does.Contain("order by \"boolcol\""));
+            Assert.That(q.ToSelectStatement().NormalizeSql(), Does.Contain("order by boolcol"));
 
             var target = Db.Select(q);
             Assert.That(target.Count, Is.EqualTo(4));
@@ -790,7 +790,7 @@ namespace ServiceStack.OrmLite.Tests
             System.Linq.Expressions.Expression<Func<TestType, object>> order = x => i > 0 ? false : x.TextCol.Contains("qwer");
             var q = Db.From<TestType>().OrderBy(order).ThenBy(x => x.Id);
             Assert.That(q.ToSelectStatement().ToLower(), Does.Not.Contain("="));
-            Assert.That(q.ToSelectStatement().ToLower(), Does.Contain("@0"));
+            Assert.That(q.ToSelectStatement().ToLower(), Does.Contain(Db.GetDialectProvider().ParamString + "0"));
             Assert.That(q.ToSelectStatement().ToLower(), Does.Contain("case when "));
 
             var target = Db.Select(q);
@@ -807,7 +807,7 @@ namespace ServiceStack.OrmLite.Tests
             System.Linq.Expressions.Expression<Func<TestType, object>> order = x => i > 0 ? false : x.TextCol.Contains("qwer");
             var q = Db.From<TestType>().OrderBy(order).ThenBy(x => x.Id);
             Assert.That(q.ToSelectStatement().ToLower(), Does.Not.Contain("="));
-            Assert.That(q.ToSelectStatement().ToLower(), Does.Not.Contain("@0"));
+            Assert.That(q.ToSelectStatement().ToLower(), Does.Not.Contain(Db.GetDialectProvider().ParamString + "0"));
 
             var target = Db.Select(q);
             Assert.That(target.Count, Is.EqualTo(4));
@@ -822,8 +822,8 @@ namespace ServiceStack.OrmLite.Tests
             System.Linq.Expressions.Expression<Func<TestType, object>> order = x => i > 0 ? x.TextCol : "www";
             var q = Db.From<TestType>().OrderBy(order).ThenBy(x => x.Id);
             Assert.That(q.ToSelectStatement().ToLower(), Does.Not.Contain("="));
-            Assert.That(q.ToSelectStatement().ToLower(), Does.Not.Contain("@0"));
-            Assert.That(q.ToSelectStatement().ToLower(), Does.Contain("order by \"id\"")); 
+            Assert.That(q.ToSelectStatement().ToLower(), Does.Not.Contain(Db.GetDialectProvider().ParamString + "0"));
+            Assert.That(q.ToSelectStatement().ToLower().NormalizeSql(), Does.Contain("order by id")); 
 
             var target = Db.Select(q);
             Assert.That(target.Count, Is.EqualTo(4));
@@ -853,12 +853,47 @@ namespace ServiceStack.OrmLite.Tests
             System.Linq.Expressions.Expression<Func<TestType, object>> order = x => x.Id > 0 ? x.TextCol : "www";
             var q = Db.From<TestType>().OrderBy(order).ThenBy(x => x.Id);
             Assert.That(q.ToSelectStatement().ToLower(), Does.Not.Contain("="));
-            Assert.That(q.ToSelectStatement().ToLower(), Does.Contain("@0"));
+            Assert.That(q.ToSelectStatement().ToLower(), Does.Contain(Db.GetDialectProvider().ParamString + "0"));
 
             var target = Db.Select(q);
             Assert.That(target.Count, Is.EqualTo(4));
             var text = target[0].TextCol;
             Assert.AreEqual("asdf", text);
+        }
+
+        [Test]
+        public void Can_Where_using_StaticInsideNonStaticMethod()
+        {
+            System.Linq.Expressions.Expression<Func<TestType, bool>> filter = x => String.Concat(x.TextCol, "test").StartsWith("asdf");
+            var q = Db.From<TestType>().Where(filter).OrderBy(x => x.Id);
+            Assert.That(q.ToSelectStatement().ToLower(), Does.Not.Contain(SqlExpression<TestType>.TrueLiteral));
+
+            var target = Db.Select(q);
+            Assert.That(target.Count, Is.EqualTo(2));
+            var text = target[0].TextCol;
+            Assert.AreEqual("asdf", text);
+        }
+
+        [Test]
+        public void Can_Where_using_StringLengthProperty1()
+        {
+            System.Linq.Expressions.Expression<Func<TestType, bool>> filter = x => x.TextCol.Length == 4;
+            var q = Db.From<TestType>().Where(filter).OrderBy(x => x.Id);
+
+            var target = Db.Select(q);
+            Assert.That(target.Count, Is.EqualTo(2));
+            var text = target[0].TextCol;
+            Assert.AreEqual("asdf", text);
+        }
+
+        [Test]
+        public void Can_Where_using_StringLengthProperty2()
+        {
+            System.Linq.Expressions.Expression<Func<TestType, bool>> filter = x => x.TextCol.Length == 0;
+            var q = Db.From<TestType>().Where(filter).OrderBy(x => x.Id);
+
+            var target = Db.Select(q);
+            Assert.That(target.Count, Is.EqualTo(0));
         }
 
         private int MethodReturningInt(int val)

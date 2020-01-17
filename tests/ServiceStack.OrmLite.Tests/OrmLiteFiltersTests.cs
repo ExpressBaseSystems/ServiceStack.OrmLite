@@ -1,6 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 using NUnit.Framework;
 using ServiceStack.DataAnnotations;
+using ServiceStack.Text;
 
 namespace ServiceStack.OrmLite.Tests
 {
@@ -34,10 +37,11 @@ namespace ServiceStack.OrmLite.Tests
         public string ModifiedBy { get; set; }
     }
 
-    [TestFixture]
-    public class OrmLiteFiltersTests
-        : OrmLiteTestBase
+    [TestFixtureOrmLite]
+    public class OrmLiteFiltersTests : OrmLiteProvidersTestBase
     {
+        public OrmLiteFiltersTests(DialectContext context) : base(context) {}
+
         [Test]
         public void Does_call_Filters_on_insert_and_update()
         {
@@ -46,8 +50,7 @@ namespace ServiceStack.OrmLite.Tests
 
             OrmLiteConfig.InsertFilter = (dbCmd, row) =>
             {
-                var auditRow = row as IAudit;
-                if (auditRow != null)
+                if (row is IAudit auditRow)
                 {
                     auditRow.CreatedDate = auditRow.ModifiedDate = insertDate;
                 }
@@ -55,8 +58,7 @@ namespace ServiceStack.OrmLite.Tests
 
             OrmLiteConfig.UpdateFilter = (dbCmd, row) =>
             {
-                var auditRow = row as IAudit;
-                if (auditRow != null)
+                if (row is IAudit auditRow)
                 {
                     auditRow.ModifiedDate = updateDate;
                 }
@@ -90,6 +92,33 @@ namespace ServiceStack.OrmLite.Tests
         }
 
         [Test]
+        public async Task Does_fire_filters_for_SaveAll()
+        {
+            var sbInsert = new List<string>(); 
+            var sbUpdate = new List<string>();
+            OrmLiteConfig.InsertFilter = (cmd, o) => sbInsert.Add(cmd.CommandText);
+            OrmLiteConfig.UpdateFilter = (cmd, o) => sbUpdate.Add(cmd.CommandText);
+
+            using (var db = OpenDbConnection())
+            {
+                db.DropAndCreateTable<AuditTableA>();
+                await db.SaveAllAsync(new[] {
+                    new AuditTableA {Id = 1, ModifiedBy = "A1"},
+                    new AuditTableA {Id = 2, ModifiedBy = "B1"},
+                });
+                
+                Assert.That(sbInsert.Count, Is.EqualTo(2));
+
+                await db.SaveAllAsync(new[] {
+                    new AuditTableA {Id = 1, ModifiedBy = "A2"},
+                    new AuditTableA {Id = 2, ModifiedBy = "B2"},
+                });
+                
+                Assert.That(sbUpdate.Count, Is.EqualTo(2));
+            }
+        }
+
+        [Test]
         public void Does_call_Filters_on_Save()
         {
             var insertDate = new DateTime(2014, 1, 1);
@@ -97,8 +126,7 @@ namespace ServiceStack.OrmLite.Tests
 
             OrmLiteConfig.InsertFilter = (dbCmd, row) =>
             {
-                var auditRow = row as IAudit;
-                if (auditRow != null)
+                if (row is IAudit auditRow)
                 {
                     auditRow.CreatedDate = auditRow.ModifiedDate = insertDate;
                 }
@@ -106,8 +134,7 @@ namespace ServiceStack.OrmLite.Tests
 
             OrmLiteConfig.UpdateFilter = (dbCmd, row) =>
             {
-                var auditRow = row as IAudit;
-                if (auditRow != null)
+                if (row is IAudit auditRow)
                 {
                     auditRow.ModifiedDate = updateDate;
                 }
@@ -147,8 +174,7 @@ namespace ServiceStack.OrmLite.Tests
         {
             OrmLiteConfig.InsertFilter = OrmLiteConfig.UpdateFilter = (dbCmd, row) =>
             {
-                var auditRow = row as IAudit;
-                if (auditRow != null)
+                if (row is IAudit auditRow)
                 {
                     if (auditRow.ModifiedBy == null)
                         throw new ArgumentNullException("ModifiedBy");
@@ -184,6 +210,29 @@ namespace ServiceStack.OrmLite.Tests
             }
 
             OrmLiteConfig.InsertFilter = OrmLiteConfig.UpdateFilter = null;
+        }
+
+        [Test]
+        public void Does_call_UpdateFilter_on_anonymous_Type()
+        {
+            var called = false;
+            OrmLiteConfig.UpdateFilter = (dbCmd, row) => { called = true; };
+
+            using (var db = OpenDbConnection())
+            {
+                db.DropAndCreateTable<AuditTableA>();
+                
+                var a = new AuditTableA();
+                var id = db.Insert(a, selectIdentity:true);
+
+                db.Update<AuditTableA>(new { ModifiedBy = "Updated" }, where: x => x.Id == id);
+                
+                Assert.That(db.SingleById<AuditTableA>(id).ModifiedBy, Is.EqualTo("Updated"));
+                
+                Assert.That(called);
+            }
+
+            OrmLiteConfig.UpdateFilter = null;
         }
 
     }

@@ -1,6 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq.Expressions;
+﻿using System.Linq.Expressions;
 
 namespace ServiceStack.OrmLite.Sqlite
 {
@@ -75,6 +73,11 @@ namespace ServiceStack.OrmLite.Sqlite
         public override SqlExpression<T> OrderByRandom()
         {
             return base.OrderBy("random()");
+        }
+
+        protected override PartialSqlString ToLengthPartialString(object arg)
+        {
+            return new PartialSqlString($"LENGTH({arg})");
         }
     }
 }

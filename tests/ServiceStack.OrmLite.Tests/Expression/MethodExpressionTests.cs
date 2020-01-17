@@ -7,8 +7,11 @@ using NUnit.Framework;
 
 namespace ServiceStack.OrmLite.Tests.Expression
 {
+    [TestFixtureOrmLite]
     public class MethodExpressionTests : ExpressionsTestBase
     {
+        public MethodExpressionTests(DialectContext context) : base(context) {}
+
         [Test]
         public void Can_select_ints_using_array_contains()
         {
@@ -21,7 +24,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 var int20 = new TestType { IntColumn = 20 };
                 var int30 = new TestType { IntColumn = 30 };
 
-                EstablishContext(db, 0, int10, int20, int30);
+                Init(db, 0, int10, int20, int30);
 
                 var results = db.Select<TestType>(x => ints.Contains(x.IntColumn));
                 var resultsNullable = db.Select<TestType>(x => nullableInts.Contains(x.IntColumn));
@@ -46,7 +49,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
                 var int20 = new TestType { IntColumn = 20 };
                 var int30 = new TestType { IntColumn = 30 };
 
-                EstablishContext(db, 0, int10, int20, int30);
+                Init(db, 0, int10, int20, int30);
 
                 var results = db.Select<TestType>(x => ints.Contains(x.IntColumn));
                 var resultsNullable = db.Select<TestType>(x => nullableInts.Contains(x.IntColumn));
@@ -66,7 +69,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
 
             using (var db = OpenDbConnection())
             {
-                EstablishContext(db, 5);
+                Init(db, 5);
 
                 var results = db.Select<TestType>(x => ints.Contains(x.Id));
 

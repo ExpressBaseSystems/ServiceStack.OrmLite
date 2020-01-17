@@ -1,9 +1,9 @@
-﻿using System;
+using System;
 using System.Reflection;
 
 namespace ServiceStack.OrmLite.Dapper
 {
-    partial class SqlMapper
+    public static partial class SqlMapper
     {
         /// <summary>
         /// Implements this interface to provide custom member mapping

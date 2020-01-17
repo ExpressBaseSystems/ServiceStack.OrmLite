@@ -1,7 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+#if MSDATA
+using Microsoft.Data.SqlClient;
+#else
 using System.Data.SqlClient;
+#endif
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -49,6 +53,10 @@ namespace ServiceStack.OrmLite.SqlServer
             this.Variables = new Dictionary<string, string>
             {
                 { OrmLiteVariables.SystemUtc, "SYSUTCDATETIME()" },
+                { OrmLiteVariables.MaxText, "VARCHAR(MAX)" },
+                { OrmLiteVariables.MaxTextUnicode, "NVARCHAR(MAX)" },
+                { OrmLiteVariables.True, SqlBool(true) },                
+                { OrmLiteVariables.False, SqlBool(false) },                
             };
         }
 
@@ -98,6 +106,39 @@ namespace ServiceStack.OrmLite.SqlServer
 
         public override IDbDataParameter CreateParam() => new SqlParameter();
 
+        public override string ToTableNamesStatement(string schema)
+        {
+            var sql = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE'";
+
+            return schema != null 
+                ? sql + " AND TABLE_SCHEMA = {0}".SqlFmt(this, schema) 
+                : sql;
+        }
+
+        public override string ToTableNamesWithRowCountsStatement(bool live, string schema)
+        {
+            var schemaSql = schema != null ? " AND s.Name = {0}".SqlFmt(this, schema) : "";
+            
+            var sql = @"SELECT t.NAME, p.rows FROM sys.tables t INNER JOIN sys.schemas s ON t.schema_id = s.schema_id 
+                               INNER JOIN sys.indexes i ON t.OBJECT_ID = i.object_id 
+                               INNER JOIN sys.partitions p ON i.object_id = p.OBJECT_ID AND i.index_id = p.index_id
+                         WHERE t.is_ms_shipped = 0 " + schemaSql + " GROUP BY t.NAME, p.Rows";
+            return sql;
+        }
+
+        public override bool DoesSchemaExist(IDbCommand dbCmd, string schemaName)
+        {
+            var sql = $"SELECT count(*) FROM sys.schemas WHERE name = '{schemaName.SqlParam()}'";
+            var result = dbCmd.ExecLongScalar(sql);
+            return result > 0; 
+        }
+
+        public override string ToCreateSchemaStatement(string schemaName)
+        {
+            var sql = $"CREATE SCHEMA [{GetSchemaName(schemaName)}]";
+            return sql;
+        }
+
         public override bool DoesTableExist(IDbCommand dbCmd, string tableName, string schema = null)
         {
             var sql = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = {0}"
@@ -105,6 +146,8 @@ namespace ServiceStack.OrmLite.SqlServer
 
             if (schema != null)
                 sql += " AND TABLE_SCHEMA = {0}".SqlFmt(this, schema);
+            else
+                sql += " AND TABLE_SCHEMA <> 'Security'";
 
             var result = dbCmd.ExecLongScalar(sql);
 
@@ -193,13 +236,20 @@ namespace ServiceStack.OrmLite.SqlServer
             return AutoIncrementDefinition;
         }
 
+        public override string GetAutoIdDefaultValue(FieldDefinition fieldDef)
+        {
+            return fieldDef.FieldType == typeof(Guid) 
+                ? "newid()" 
+                : null;
+        }
+
         public override string GetColumnDefinition(FieldDefinition fieldDef)
         {
             // https://msdn.microsoft.com/en-us/library/ms182776.aspx
             if (fieldDef.IsRowVersion)
                 return $"{fieldDef.FieldName} rowversion NOT NULL";
 
-            var fieldDefinition = fieldDef.CustomFieldDefinition ??
+            var fieldDefinition = ResolveFragment(fieldDef.CustomFieldDefinition) ??
                 GetColumnTypeDefinition(fieldDef.ColumnType, fieldDef.FieldLength, fieldDef.Scale);
 
             var sql = StringBuilderCache.Allocate();
@@ -218,6 +268,10 @@ namespace ServiceStack.OrmLite.SqlServer
             if (fieldDef.IsPrimaryKey)
             {
                 sql.Append(" PRIMARY KEY");
+
+                if (fieldDef.IsNonClustered)
+                    sql.Append(" NONCLUSTERED");
+ 
                 if (fieldDef.AutoIncrement)
                 {
                     sql.Append(" ").Append(GetAutoIncrementDefinition(fieldDef));
@@ -244,16 +298,14 @@ namespace ServiceStack.OrmLite.SqlServer
 
         public override string ToInsertRowStatement(IDbCommand cmd, object objWithProperties, ICollection<string> insertFields = null)
         {
-            if (insertFields == null)
-                insertFields = new List<string>();
-
             var sbColumnNames = StringBuilderCache.Allocate();
             var sbColumnValues = StringBuilderCacheAlt.Allocate();
             var sbReturningColumns = StringBuilderCacheAlt.Allocate();
             var tableType = objWithProperties.GetType();
             var modelDef = GetModel(tableType);
 
-            foreach (var fieldDef in modelDef.FieldDefinitionsArray)
+            var fieldDefs = GetInsertFieldDefinitions(modelDef, insertFields);
+            foreach (var fieldDef in fieldDefs)
             {
                 if (ShouldReturnOnInsert(modelDef, fieldDef))
                 {
@@ -262,10 +314,7 @@ namespace ServiceStack.OrmLite.SqlServer
                     sbReturningColumns.Append("INSERTED." + GetQuotedColumnName(fieldDef.FieldName));
                 }
 
-                if (ShouldSkipInsert(fieldDef))
-                    continue;
-
-                if (insertFields.Count > 0 && !insertFields.Contains(fieldDef.Name, StringComparer.OrdinalIgnoreCase))
+                if (ShouldSkipInsert(fieldDef) && !fieldDef.AutoId)
                     continue;
 
                 if (sbColumnNames.Length > 0)
@@ -279,7 +328,7 @@ namespace ServiceStack.OrmLite.SqlServer
                     sbColumnValues.Append(this.GetParam(SanitizeFieldNameForParamName(fieldDef.FieldName)));
 
                     var p = AddParameter(cmd, fieldDef);
-                    p.Value = fieldDef.GetValue(objWithProperties) ?? DBNull.Value;
+                    p.Value = GetFieldValue(fieldDef, fieldDef.GetValue(objWithProperties)) ?? DBNull.Value;
                 }
                 catch (Exception ex)
                 {
@@ -288,11 +337,23 @@ namespace ServiceStack.OrmLite.SqlServer
                 }
             }
 
+            foreach (var fieldDef in modelDef.AutoIdFields) // need to include any AutoId fields that weren't included 
+            {
+                if (fieldDefs.Contains(fieldDef))
+                    continue;
+
+                if (sbReturningColumns.Length > 0)
+                    sbReturningColumns.Append(",");
+                sbReturningColumns.Append("INSERTED." + GetQuotedColumnName(fieldDef.FieldName));
+            }
+
             var strReturning = StringBuilderCacheAlt.ReturnAndFree(sbReturningColumns);
             strReturning = strReturning.Length > 0 ? "OUTPUT " + strReturning + " " : "";
-            var sql = $"INSERT INTO {GetQuotedTableName(modelDef)} ({StringBuilderCache.ReturnAndFree(sbColumnNames)}) " +
-                      strReturning +
-                      $"VALUES ({StringBuilderCacheAlt.ReturnAndFree(sbColumnValues)})";
+            var sql = sbColumnNames.Length > 0
+                ? $"INSERT INTO {GetQuotedTableName(modelDef)} ({StringBuilderCache.ReturnAndFree(sbColumnNames)}) " +
+                  strReturning +
+                  $"VALUES ({StringBuilderCacheAlt.ReturnAndFree(sbColumnValues)})"
+                : $"INSERT INTO {GetQuotedTableName(modelDef)} {strReturning} DEFAULT VALUES";
 
             return sql;
         }
@@ -310,11 +371,14 @@ namespace ServiceStack.OrmLite.SqlServer
                    + GetQuotedName(sequence);
         }
 
-        protected virtual bool ShouldReturnOnInsert(ModelDefinition modelDef, FieldDefinition fieldDef) =>
-            fieldDef.ReturnOnInsert || (fieldDef.IsPrimaryKey && fieldDef.AutoIncrement && modelDef.HasReturnAttribute);
+        protected override bool ShouldSkipInsert(FieldDefinition fieldDef) => 
+            fieldDef.ShouldSkipInsert() || fieldDef.AutoId;
 
-        protected virtual bool ShouldSkipInsert(FieldDefinition fieldDef) => 
-            fieldDef.ShouldSkipInsert();
+        protected virtual bool ShouldReturnOnInsert(ModelDefinition modelDef, FieldDefinition fieldDef) =>
+            fieldDef.ReturnOnInsert || (fieldDef.IsPrimaryKey && fieldDef.AutoIncrement && HasInsertReturnValues(modelDef)) || fieldDef.AutoId;
+
+        public override bool HasInsertReturnValues(ModelDefinition modelDef) =>
+            modelDef.FieldDefinitions.Any(x => x.ReturnOnInsert || (x.AutoId && x.FieldType == typeof(Guid)));
 
         protected virtual bool SupportsSequences(FieldDefinition fieldDef) => false;
 
@@ -327,7 +391,8 @@ namespace ServiceStack.OrmLite.SqlServer
 
             cmd.Parameters.Clear();
 
-            foreach (var fieldDef in modelDef.FieldDefinitionsArray)
+            var fieldDefs = GetInsertFieldDefinitions(modelDef, insertFields);
+            foreach (var fieldDef in fieldDefs)
             {
                 if (ShouldReturnOnInsert(modelDef, fieldDef))
                 {
@@ -336,11 +401,7 @@ namespace ServiceStack.OrmLite.SqlServer
                     sbReturningColumns.Append("INSERTED." + GetQuotedColumnName(fieldDef.FieldName));
                 }
 
-                if (ShouldSkipInsert(fieldDef))
-                    continue;
-
-                //insertFields contains Property "Name" of fields to insert ( that's how expressions work )
-                if (insertFields != null && !insertFields.Contains(fieldDef.Name, StringComparer.OrdinalIgnoreCase))
+                if (ShouldSkipInsert(fieldDef) && !fieldDef.AutoId)
                     continue;
 
                 if (sbColumnNames.Length > 0)
@@ -369,11 +430,22 @@ namespace ServiceStack.OrmLite.SqlServer
                 }
             }
 
+            foreach (var fieldDef in modelDef.AutoIdFields) // need to include any AutoId fields that weren't included 
+            {
+                if (fieldDefs.Contains(fieldDef))
+                    continue;
+
+                if (sbReturningColumns.Length > 0)
+                    sbReturningColumns.Append(",");
+                sbReturningColumns.Append("INSERTED." + GetQuotedColumnName(fieldDef.FieldName));
+            }
+
             var strReturning = StringBuilderCacheAlt.ReturnAndFree(sbReturningColumns);
             strReturning = strReturning.Length > 0 ? "OUTPUT " + strReturning + " " : "";
-            cmd.CommandText = $"INSERT INTO {GetQuotedTableName(modelDef)} ({StringBuilderCache.ReturnAndFree(sbColumnNames)}) " +
-                              strReturning +
-                              $"VALUES ({StringBuilderCacheAlt.ReturnAndFree(sbColumnValues)})";
+            cmd.CommandText = sbColumnNames.Length > 0
+                ? $"INSERT INTO {GetQuotedTableName(modelDef)} ({StringBuilderCache.ReturnAndFree(sbColumnNames)}) {strReturning}" +                              
+                  $"VALUES ({StringBuilderCacheAlt.ReturnAndFree(sbColumnValues)})"
+                : $"INSERT INTO {GetQuotedTableName(modelDef)}{strReturning} DEFAULT VALUES";
         }
 
         public override void PrepareInsertRowStatement<T>(IDbCommand dbCmd, Dictionary<string, object> args)
@@ -396,7 +468,7 @@ namespace ServiceStack.OrmLite.SqlServer
                     sbReturningColumns.Append("INSERTED." + GetQuotedColumnName(fieldDef.FieldName));
                 }
 
-                if (ShouldSkipInsert(fieldDef))
+                if (ShouldSkipInsert(fieldDef) && !fieldDef.AutoId)
                     continue;
 
                 var value = entry.Value;
@@ -409,7 +481,7 @@ namespace ServiceStack.OrmLite.SqlServer
                 try
                 {
                     sbColumnNames.Append(GetQuotedColumnName(fieldDef.FieldName));
-                    sbColumnValues.Append(this.AddParam(dbCmd, value, fieldDef).ParameterName);
+                    sbColumnValues.Append(this.AddUpdateParam(dbCmd, value, fieldDef).ParameterName);
                 }
                 catch (Exception ex)
                 {
@@ -420,9 +492,10 @@ namespace ServiceStack.OrmLite.SqlServer
 
             var strReturning = StringBuilderCacheAlt.ReturnAndFree(sbReturningColumns);
             strReturning = strReturning.Length > 0 ? "OUTPUT " + strReturning + " " : "";
-            dbCmd.CommandText = $"INSERT INTO {GetQuotedTableName(modelDef)} ({StringBuilderCache.ReturnAndFree(sbColumnNames)}) " +
-                                strReturning +
-                                $"VALUES ({StringBuilderCacheAlt.ReturnAndFree(sbColumnValues)})";
+            dbCmd.CommandText = sbColumnNames.Length > 0
+                ? $"INSERT INTO {GetQuotedTableName(modelDef)} ({StringBuilderCache.ReturnAndFree(sbColumnNames)}) {strReturning}" +                                
+                  $"VALUES ({StringBuilderCacheAlt.ReturnAndFree(sbColumnValues)})"
+                : $"INSERT INTO {GetQuotedTableName(modelDef)} {strReturning}DEFAULT VALUES";
         }
  
         public override string ToSelectStatement(ModelDefinition modelDef,
@@ -545,6 +618,11 @@ namespace ServiceStack.OrmLite.SqlServer
             : rows != null
                 ? "OFFSET " + offset.GetValueOrDefault() + " ROWS FETCH NEXT " + rows + " ROWS ONLY"
                 : "OFFSET " + offset.GetValueOrDefault(int.MaxValue) + " ROWS";
+
+        public override string SqlCast(object fieldOrValue, string castAs) => 
+            castAs == Sql.VARCHAR
+                ? $"CAST({fieldOrValue} AS VARCHAR(MAX))"
+                : $"CAST({fieldOrValue} AS {castAs})";
 
         protected SqlConnection Unwrap(IDbConnection db) => (SqlConnection)db.ToDbConnection();
 

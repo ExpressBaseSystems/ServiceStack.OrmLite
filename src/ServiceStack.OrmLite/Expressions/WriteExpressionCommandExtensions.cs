@@ -89,6 +89,32 @@ namespace ServiceStack.OrmLite
             return dbCmd;
         }
 
+        internal static int UpdateOnly<T>(this IDbCommand dbCmd,
+            Expression<Func<T>> updateFields,
+            string whereExpression,
+            IEnumerable<IDbDataParameter> dbParams,
+            Action<IDbCommand> commandFilter = null)
+        {
+            var cmd = dbCmd.InitUpdateOnly(updateFields, whereExpression, dbParams);
+            commandFilter?.Invoke(cmd);
+            return cmd.ExecNonQuery();
+        }
+
+        internal static IDbCommand InitUpdateOnly<T>(this IDbCommand dbCmd, Expression<Func<T>> updateFields, string whereExpression, IEnumerable<IDbDataParameter> sqlParams)
+        {
+            if (updateFields == null)
+                throw new ArgumentNullException(nameof(updateFields));
+
+            OrmLiteConfig.UpdateFilter?.Invoke(dbCmd, updateFields.EvalFactoryFn());
+
+            dbCmd.SetParameters(sqlParams);
+
+            var updateFieldValues = updateFields.AssignedValues();
+            dbCmd.GetDialectProvider().PrepareUpdateRowStatement<T>(dbCmd, updateFieldValues, whereExpression);
+
+            return dbCmd;
+        }
+        
         public static int UpdateAdd<T>(this IDbCommand dbCmd,
             Expression<Func<T>> updateFields,
             SqlExpression<T> q,
@@ -114,12 +140,30 @@ namespace ServiceStack.OrmLite
             return dbCmd;
         }
 
-        public static int UpdateNonDefaults<T>(this IDbCommand dbCmd, T item, Expression<Func<T, bool>> obj)
+        public static int UpdateOnly<T>(this IDbCommand dbCmd,
+            Dictionary<string, object> updateFields,
+            Expression<Func<T, bool>> where,
+            Action<IDbCommand> commandFilter = null)
+        {
+            if (updateFields == null)
+                throw new ArgumentNullException(nameof(updateFields));
+
+            OrmLiteConfig.UpdateFilter?.Invoke(dbCmd, updateFields.FromObjectDictionary<T>());
+
+            var q = dbCmd.GetDialectProvider().SqlExpression<T>();
+            q.Where(where);
+            q.PrepareUpdateStatement(dbCmd, updateFields);
+            commandFilter?.Invoke(dbCmd);
+
+            return dbCmd.ExecNonQuery();
+        }
+
+        public static int UpdateNonDefaults<T>(this IDbCommand dbCmd, T item, Expression<Func<T, bool>> where)
         {
             OrmLiteConfig.UpdateFilter?.Invoke(dbCmd, item);
 
             var q = dbCmd.GetDialectProvider().SqlExpression<T>();
-            q.Where(obj);
+            q.Where(@where);
             q.PrepareUpdateStatement(dbCmd, item, excludeDefaults: true);
             return dbCmd.ExecNonQuery();
         }
@@ -137,6 +181,8 @@ namespace ServiceStack.OrmLite
 
         public static int Update<T>(this IDbCommand dbCmd, object updateOnly, Expression<Func<T, bool>> where = null, Action<IDbCommand> commandFilter = null)
         {
+            OrmLiteConfig.UpdateFilter?.Invoke(dbCmd, updateOnly);
+
             var q = dbCmd.GetDialectProvider().SqlExpression<T>();
             var whereSql = q.Where(where).WhereExpression;
             q.CopyParamsTo(dbCmd);
@@ -157,14 +203,20 @@ namespace ServiceStack.OrmLite
                 var fieldDef = fields.FirstOrDefault(x => string.Equals(x.Name, setField.Name, StringComparison.OrdinalIgnoreCase));
                 if (fieldDef == null || fieldDef.ShouldSkipUpdate()) continue;
 
+                var value = setField.CreateGetter()(updateOnly);
+                if (string.IsNullOrEmpty(whereSql) && (fieldDef.IsPrimaryKey || fieldDef.AutoIncrement))
+                {
+                    whereSql = $"WHERE {dialectProvider.GetQuotedColumnName(fieldDef.FieldName)} = {dialectProvider.AddQueryParam(dbCmd, value, fieldDef).ParameterName}";
+                    continue;
+                }
+
                 if (sql.Length > 0)
                     sql.Append(", ");
 
-                var value = setField.CreateGetter()(updateOnly);
                 sql
                     .Append(dialectProvider.GetQuotedColumnName(fieldDef.FieldName))
                     .Append("=")
-                    .Append(dialectProvider.AddParam(dbCmd, value, fieldDef).ParameterName);
+                    .Append(dialectProvider.AddUpdateParam(dbCmd, value, fieldDef).ParameterName);
             }
 
             dbCmd.CommandText = $"UPDATE {dialectProvider.GetQuotedTableName(modelDef)} " +

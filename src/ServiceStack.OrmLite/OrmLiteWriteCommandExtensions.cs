@@ -15,14 +15,50 @@ using System.Collections.Generic;
 using System.Data;
 using System.Linq;
 using ServiceStack.Data;
+using ServiceStack.DataAnnotations;
 using ServiceStack.Logging;
+using ServiceStack.OrmLite.Converters;
 using ServiceStack.Text;
 
 namespace ServiceStack.OrmLite
 {
     public static class OrmLiteWriteCommandExtensions
     {
-        private static readonly ILog Log = LogManager.GetLogger(typeof(OrmLiteWriteCommandExtensions));
+        internal static ILog Log = LogManager.GetLogger(typeof(OrmLiteWriteCommandExtensions));
+
+        internal static bool CreateSchema<T>(this IDbCommand dbCmd)
+        {
+            var schemaName = typeof(T).FirstAttribute<SchemaAttribute>()?.Name;
+            if(schemaName == null) throw new InvalidOperationException($"Type {typeof(T).Name} does not have a schema attribute, just CreateSchema(string schemaName) instead"); 
+            return CreateSchema(dbCmd, schemaName);
+        }
+        
+        internal static bool CreateSchema(this IDbCommand dbCmd, string schemaName)
+        {
+            schemaName.ThrowIfNullOrEmpty(nameof(schemaName));
+            var dialectProvider = dbCmd.GetDialectProvider();
+            var schema = dialectProvider.NamingStrategy.GetSchemaName(schemaName);
+            var schemaExists = dialectProvider.DoesSchemaExist(dbCmd, schema);
+            if (schemaExists)
+            {
+                return true;
+            }
+
+            try
+            {
+                ExecuteSql(dbCmd, dialectProvider.ToCreateSchemaStatement(schema));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                if (IgnoreAlreadyExistsError(ex))
+                {
+                    Log.DebugFormat("Ignoring existing schema '{0}': {1}", schema, ex.Message);
+                    return false;
+                }
+                throw;
+            }
+        }
 
         internal static void CreateTables(this IDbCommand dbCmd, bool overwrite, params Type[] tableTypes)
         {
@@ -107,6 +143,7 @@ namespace ServiceStack.OrmLite
                                     Log.DebugFormat("Ignoring existing generator '{0}': {1}", seq, ex.Message);
                                     continue;
                                 }
+
                                 throw;
                             }
                         }
@@ -139,9 +176,11 @@ namespace ServiceStack.OrmLite
                                 Log.DebugFormat("Ignoring existing index '{0}': {1}", sqlIndex, exIndex.Message);
                                 continue;
                             }
+
                             throw;
                         }
                     }
+
                     return true;
                 }
             }
@@ -152,8 +191,10 @@ namespace ServiceStack.OrmLite
                     Log.DebugFormat("Ignoring existing table '{0}': {1}", modelDef.ModelName, ex.Message);
                     return false;
                 }
+
                 throw;
             }
+
             return false;
         }
 
@@ -224,10 +265,10 @@ namespace ServiceStack.OrmLite
             if (Log.IsDebugEnabled)
                 Log.DebugCommand(dbCmd);
 
+            OrmLiteConfig.BeforeExecFilter?.Invoke(dbCmd);
+
             if (OrmLiteConfig.ResultsFilter != null)
-            {
                 return OrmLiteConfig.ResultsFilter.ExecuteSql(dbCmd);
-            }
 
             return dbCmd.ExecuteNonQuery();
         }
@@ -235,12 +276,14 @@ namespace ServiceStack.OrmLite
         internal static int ExecuteSql(this IDbCommand dbCmd, string sql, object anonType)
         {
             if (anonType != null)
-                dbCmd.SetParameters(anonType.ToObjectDictionary(), excludeDefaults: false);
+                dbCmd.SetParameters(anonType.ToObjectDictionary(), excludeDefaults: false, sql:ref sql);
 
             dbCmd.CommandText = sql;
 
             if (Log.IsDebugEnabled)
                 Log.DebugCommand(dbCmd);
+
+            OrmLiteConfig.BeforeExecFilter?.Invoke(dbCmd);
 
             if (OrmLiteConfig.ResultsFilter != null)
                 return OrmLiteConfig.ResultsFilter.ExecuteSql(dbCmd);
@@ -290,6 +333,8 @@ namespace ServiceStack.OrmLite
         {
             values = PopulateValues(reader, values, dialectProvider);
 
+            var dbNullFilter = OrmLiteConfig.OnDbNullFilter;
+
             foreach (var fieldCache in indexCache)
             {
                 try
@@ -301,12 +346,9 @@ namespace ServiceStack.OrmLite
                     if (values != null && values[index] == DBNull.Value)
                     {
                         var value = fieldDef.IsNullable ? null : fieldDef.FieldTypeDefaultValue;
-                        if (OrmLiteConfig.OnDbNullFilter != null)
-                        {
-                            var useValue = OrmLiteConfig.OnDbNullFilter(fieldDef);
-                            if (useValue != null)
-                                value = useValue;
-                        }
+                        var useValue = dbNullFilter?.Invoke(fieldDef);
+                        if (useValue != null)
+                            value = useValue;
 
                         fieldDef.SetValueFn(objWithProperties, value);
                     }
@@ -317,12 +359,9 @@ namespace ServiceStack.OrmLite
                         {
                             if (!fieldDef.IsNullable)
                                 value = fieldDef.FieldTypeDefaultValue;
-                            if (OrmLiteConfig.OnDbNullFilter != null)
-                            {
-                                var useValue = OrmLiteConfig.OnDbNullFilter(fieldDef);
-                                if (useValue != null)
-                                    value = useValue;
-                            }
+                            var useValue = dbNullFilter?.Invoke(fieldDef);
+                            if (useValue != null)
+                                value = useValue;
                             fieldDef.SetValueFn(objWithProperties, value);
                         }
                         else
@@ -337,6 +376,8 @@ namespace ServiceStack.OrmLite
                     OrmLiteUtils.HandleException(ex);
                 }
             }
+            
+            OrmLiteConfig.PopulatedObjectFilter?.Invoke(objWithProperties);
 
             return objWithProperties;
         }
@@ -571,12 +612,15 @@ namespace ServiceStack.OrmLite
 
             var rowVersionParam = dbCmd.CreateParameter();
             rowVersionParam.ParameterName = dialectProvider.GetParam("rowVersion");
-            rowVersionParam.Value = rowVersion;
+            var converter = dialectProvider.GetConverterBestMatch(typeof(RowVersionConverter));
+            converter.InitDbParam(rowVersionParam, typeof(ulong));
+
+            rowVersionParam.Value = converter.ToDbValue(typeof(ulong), rowVersion);
             dbCmd.Parameters.Add(rowVersionParam);
 
             var sql = $"DELETE FROM {dialectProvider.GetQuotedTableName(modelDef)} " +
                       $"WHERE {dialectProvider.GetQuotedColumnName(modelDef.PrimaryKey.FieldName)} = {idParam.ParameterName} " +
-                      $"AND {dialectProvider.GetQuotedColumnName(rowVersionField.FieldName)} = {rowVersionParam.ParameterName}";
+                      $"AND {dialectProvider.GetRowVersionColumn(rowVersionField)} = {rowVersionParam.ParameterName}";
 
             return sql;
         }
@@ -628,37 +672,25 @@ namespace ServiceStack.OrmLite
             if (anonType != null) dbCmd.SetParameters(tableType, anonType, excludeDefaults: false, sql: ref sql);
             return dbCmd.ExecuteSql(dbCmd.GetDialectProvider().ToDeleteStatement(tableType, sql));
         }
-
+        
         internal static long Insert<T>(this IDbCommand dbCmd, T obj, Action<IDbCommand> commandFilter, bool selectIdentity = false)
         {
             OrmLiteConfig.InsertFilter?.Invoke(dbCmd, obj);
 
             var dialectProvider = dbCmd.GetDialectProvider();
             dialectProvider.PrepareParameterizedInsertStatement<T>(dbCmd, 
-                insertFields: OrmLiteUtils.GetNonDefaultValueInsertFields(obj));
+                insertFields: dialectProvider.GetNonDefaultValueInsertFields(obj));
 
             dialectProvider.SetParameterValues<T>(dbCmd, obj);
 
             commandFilter?.Invoke(dbCmd); //dbCmd.OnConflictInsert() needs to be applied before last insert id
 
-            var modelDef = typeof(T).GetModelDefinition();
-            if (modelDef.HasReturnAttribute)
+            if (dialectProvider.HasInsertReturnValues(ModelDefinition<T>.Definition))
             {
                 using (var reader = dbCmd.ExecReader(dbCmd.CommandText))
                 using (reader)
                 {
-                    if (reader.Read())
-                    {
-                        var values = new object[reader.FieldCount];
-                        var indexCache = reader.GetIndexFieldsCache(ModelDefinition<T>.Definition, dialectProvider);
-                        obj.PopulateWithSqlReader(dialectProvider, reader, indexCache, values);
-                        if ((modelDef.PrimaryKey != null) && modelDef.PrimaryKey.AutoIncrement)
-                        {
-                            var id = modelDef.GetPrimaryKey(obj);
-                            return Convert.ToInt64(id);
-                        }
-                    }
-                    return 0;
+                    return reader.PopulateReturnValues(dialectProvider, obj);
                 }
             }
 
@@ -672,9 +704,55 @@ namespace ServiceStack.OrmLite
             return dbCmd.ExecNonQuery();
         }
 
+        internal static long PopulateReturnValues<T>(this IDataReader reader, IOrmLiteDialectProvider dialectProvider, T obj)
+        {
+            if (reader.Read())
+            {
+                var modelDef = ModelDefinition<T>.Definition;
+                var values = new object[reader.FieldCount];
+                var indexCache = reader.GetIndexFieldsCache(modelDef, dialectProvider);
+                obj.PopulateWithSqlReader(dialectProvider, reader, indexCache, values);
+                if ((modelDef.PrimaryKey != null) && (modelDef.PrimaryKey.AutoIncrement || modelDef.PrimaryKey.ReturnOnInsert))
+                {
+                    var id = modelDef.GetPrimaryKey(obj);
+                    if (modelDef.PrimaryKey.AutoId)
+                        return 1;
+                    return Convert.ToInt64(id);
+                }
+            }
+
+            return 0;
+        }
+
         internal static void Insert<T>(this IDbCommand dbCmd, Action<IDbCommand> commandFilter, params T[] objs)
         {
             dbCmd.InsertAll(objs: objs, commandFilter: commandFilter);
+        }
+
+        internal static long InsertIntoSelect<T>(this IDbCommand dbCmd, ISqlExpression query, Action<IDbCommand> commandFilter) => 
+            dbCmd.InsertIntoSelectInternal<T>(query, commandFilter).ExecNonQuery();
+
+        internal static IDbCommand InsertIntoSelectInternal<T>(this IDbCommand dbCmd, ISqlExpression query, Action<IDbCommand> commandFilter)
+        {
+            var dialectProvider = dbCmd.GetDialectProvider();
+
+            var sql = query.ToSelectStatement();
+            var selectFields = query.GetUntypedSqlExpression()
+                .SelectExpression
+                .Substring("SELECT ".Length)
+                .ParseCommands();
+
+            var fieldsOrAliases = selectFields
+                .Map(x => x.Original.ToString().LastRightPart(" AS ").Trim().StripDbQuotes());
+
+            dialectProvider.PrepareParameterizedInsertStatement<T>(dbCmd, insertFields: fieldsOrAliases);
+
+            dbCmd.SetParameters(query.Params);
+
+            dbCmd.CommandText = dbCmd.CommandText.LeftPart(")") + ")\n" + sql;
+
+            commandFilter?.Invoke(dbCmd); //dbCmd.OnConflictInsert() needs to be applied before last insert id
+            return dbCmd;
         }
 
         internal static void InsertAll<T>(this IDbCommand dbCmd, IEnumerable<T> objs, Action<IDbCommand> commandFilter)
@@ -786,14 +864,16 @@ namespace ServiceStack.OrmLite
                     dbCmd.Insert(obj, commandFilter:null);
                 }
 
-                modelDef.RowVersion?.SetValueFn(obj, dbCmd.GetRowVersion(modelDef, id));
+                modelDef.RowVersion?.SetValueFn(obj, dbCmd.GetRowVersion(modelDef, id, modelDef.RowVersion.ColumnType));
 
                 return true;
             }
 
-            dbCmd.Update(obj);
+            var rowsUpdated = dbCmd.Update(obj);
+            if (rowsUpdated == 0 && Env.StrictMode)
+                throw new OptimisticConcurrencyException("No rows were inserted or updated");
 
-            modelDef.RowVersion?.SetValueFn(obj, dbCmd.GetRowVersion(modelDef, id));
+            modelDef.RowVersion?.SetValueFn(obj, dbCmd.GetRowVersion(modelDef, id, modelDef.RowVersion.ColumnType));
 
             return false;
         }
@@ -830,7 +910,6 @@ namespace ServiceStack.OrmLite
                     var id = modelDef.GetPrimaryKey(row);
                     if (id != defaultIdValue && existingRowsMap.ContainsKey(id))
                     {
-                        OrmLiteConfig.UpdateFilter?.Invoke(dbCmd, row);
                         dbCmd.Update(row);
                     }
                     else
@@ -845,14 +924,13 @@ namespace ServiceStack.OrmLite
                         }
                         else
                         {
-                            OrmLiteConfig.InsertFilter?.Invoke(dbCmd, row);
                             dbCmd.Insert(row, commandFilter: null);
                         }
 
                         rowsAdded++;
                     }
 
-                    modelDef.RowVersion?.SetValueFn(row, dbCmd.GetRowVersion(modelDef, id));
+                    modelDef.RowVersion?.SetValueFn(row, dbCmd.GetRowVersion(modelDef, id, modelDef.RowVersion.ColumnType));
                 }
 
                 dbTrans?.Commit();
@@ -873,6 +951,8 @@ namespace ServiceStack.OrmLite
             var pkValue = modelDef.PrimaryKey.GetValue(instance);
 
             var fieldDefs = modelDef.AllFieldDefinitionsArray.Where(x => x.IsReference);
+
+            bool updateInstance = false;
             foreach (var fieldDef in fieldDefs)
             {
                 var listInterface = fieldDef.FieldType.GetTypeWithGenericInterfaceOf(typeof(IList<>));
@@ -918,10 +998,15 @@ namespace ServiceStack.OrmLite
                         {
                             var refPkValue = refModelDef.PrimaryKey.GetValue(result);
                             refSelf.SetValueFn(instance, refPkValue);
-                            dbCmd.Update(instance);
+                            updateInstance = true;
                         }
                     }
                 }
+            }
+
+            if (updateInstance)
+            {
+                dbCmd.Update(instance);
             }
         }
 
@@ -966,10 +1051,15 @@ namespace ServiceStack.OrmLite
             dbCmd.ExecuteNonQuery();
         }
 
-        internal static object GetRowVersion(this IDbCommand dbCmd, ModelDefinition modelDef, object id)
+        internal static object GetRowVersion(this IDbCommand dbCmd, ModelDefinition modelDef, object id, Type asType)
         {
             var sql = RowVersionSql(dbCmd, modelDef, id);
-            return dbCmd.GetDialectProvider().FromDbRowVersion(modelDef.RowVersion.FieldType, dbCmd.Scalar<object>(sql));
+            var to = dbCmd.GetDialectProvider().FromDbRowVersion(modelDef.RowVersion.FieldType, dbCmd.Scalar<object>(sql));
+
+            if (to is ulong u && asType == typeof(byte[]))
+                return BitConverter.GetBytes(u);
+
+            return to;
         }
 
         internal static string RowVersionSql(this IDbCommand dbCmd, ModelDefinition modelDef, object id)
@@ -977,7 +1067,7 @@ namespace ServiceStack.OrmLite
             var dialectProvider = dbCmd.GetDialectProvider();
             var idParamString = dialectProvider.GetParam();
 
-            var sql = $"SELECT {dialectProvider.GetRowVersionColumnName(modelDef.RowVersion)} " +
+            var sql = $"SELECT {dialectProvider.GetRowVersionSelectColumn(modelDef.RowVersion)} " +
                       $"FROM {dialectProvider.GetQuotedTableName(modelDef)} " +
                       $"WHERE {dialectProvider.GetQuotedColumnName(modelDef.PrimaryKey.FieldName)} = {idParamString}";
 

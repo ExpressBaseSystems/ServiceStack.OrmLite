@@ -14,7 +14,7 @@ namespace ServiceStack.OrmLite.SqlServer
             if (fieldDef.IsRowVersion)
                 return $"{fieldDef.FieldName} rowversion NOT NULL";
 
-            var fieldDefinition = fieldDef.CustomFieldDefinition ??
+            var fieldDefinition = ResolveFragment(fieldDef.CustomFieldDefinition) ??
                 GetColumnTypeDefinition(fieldDef.ColumnType, fieldDef.FieldLength, fieldDef.Scale);
 
             var memTableAttrib = fieldDef.PropertyInfo?.ReflectedType.FirstAttribute<SqlServerMemoryOptimizedAttribute>();
@@ -58,13 +58,6 @@ namespace ServiceStack.OrmLite.SqlServer
                 {
                     sql.Append($" HASH WITH (BUCKET_COUNT = {bucketCount.Value})");
                 }
-            }
-            else if (!isMemoryTable && fieldDef.IsUniqueIndex)
-            {
-                sql.Append(" UNIQUE");
-
-                if (fieldDef.IsNonClustered)
-                    sql.Append(" NONCLUSTERED");
             }
             else
             {
@@ -125,6 +118,12 @@ namespace ServiceStack.OrmLite.SqlServer
                         sbColumns.Append(", \n  ");
 
                     sbColumns.Append(columnDefinition);
+                    
+                    var sqlConstraint = GetCheckConstraint(modelDef, fieldDef);
+                    if (sqlConstraint != null)
+                    {
+                        sbConstraints.Append(",\n" + sqlConstraint);
+                    }
 
                     if (fieldDef.ForeignKey == null || OrmLiteConfig.SkipForeignKeys)
                         continue;
@@ -171,6 +170,12 @@ namespace ServiceStack.OrmLite.SqlServer
                     }
                     sbTableOptions.Append(")");
                 }
+            }
+            
+            var uniqueConstraints = GetUniqueConstraints(modelDef);
+            if (uniqueConstraints != null)
+            {
+                sbConstraints.Append(",\n" + uniqueConstraints);
             }
 
             var sql = $"CREATE TABLE {GetQuotedTableName(modelDef)} ";

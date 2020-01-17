@@ -7,6 +7,8 @@ namespace ServiceStack.OrmLite
 {
     public static partial class Sql
     {
+	    public static string VARCHAR = nameof(VARCHAR); 
+	    
         public static List<object> Flatten(IEnumerable list)
         {
             var ret = new List<object>();
@@ -60,13 +62,21 @@ namespace ServiceStack.OrmLite
 
         public static T AllFields<T>(T item) => item;
 
-        public static string JoinAlias(string property, string tableAlias) => tableAlias;
+	    [Obsolete("Use TableAlias")]
+	    public static string JoinAlias(string property, string tableAlias) => tableAlias;
 
-        public static T JoinAlias<T>(T property, string tableAlias) => default(T);
+	    public static string TableAlias(string property, string tableAlias) => tableAlias;
+
+	    [Obsolete("Use TableAlias")]
+	    public static T JoinAlias<T>(T property, string tableAlias) => default(T);
+
+	    public static T TableAlias<T>(T property, string tableAlias) => default(T);
 
         public static string Custom(string customSql) => customSql;
 
         public static T Custom<T>(string customSql) => default(T);
+
+	    public static string Cast(object value, string castAs) => $"CAST({value} AS {castAs})";
 
         public const string EOT= "0 EOT";
     }

@@ -14,13 +14,13 @@ namespace ServiceStack.OrmLite.SqlServer
 
         public override bool DoesSequenceExist(IDbCommand dbCmd, string sequenceName)
         {
-            var sql = "SELECT 1 FROM SYS.SEQUENCES WHERE object_id=object_id({0})"
+            var sql = "SELECT EXISTS(SELECT 1 FROM SYS.SEQUENCES WHERE object_id=object_id({0}))"
                 .SqlFmt(this, sequenceName);
 
             dbCmd.CommandText = sql;
-            var result = dbCmd.ExecuteScalar();
+            var result = dbCmd.ExecLongScalar();
 
-            return result != null;
+            return result == 1;
         }
 
         protected override string GetAutoIncrementDefinition(FieldDefinition fieldDef)
@@ -101,7 +101,7 @@ namespace ServiceStack.OrmLite.SqlServer
             if (fieldDef.IsRowVersion)
                 return $"{fieldDef.FieldName} rowversion NOT NULL";
 
-            var fieldDefinition = fieldDef.CustomFieldDefinition ??
+            var fieldDefinition = ResolveFragment(fieldDef.CustomFieldDefinition) ??
                 GetColumnTypeDefinition(fieldDef.ColumnType, fieldDef.FieldLength, fieldDef.Scale);
 
             var sql = StringBuilderCache.Allocate();
@@ -120,6 +120,10 @@ namespace ServiceStack.OrmLite.SqlServer
             if (fieldDef.IsPrimaryKey)
             {
                 sql.Append(" PRIMARY KEY");
+
+                if (fieldDef.IsNonClustered)
+                    sql.Append(" NONCLUSTERED");
+ 
                 if (fieldDef.AutoIncrement)
                 {
                     sql.Append(" ").Append(AutoIncrementDefinition);
@@ -171,7 +175,7 @@ namespace ServiceStack.OrmLite.SqlServer
 
                     sbColumns.Append(columnDefinition);
 
-                    var sqlConstraint = GetCheckConstraint(fieldDef);
+                    var sqlConstraint = GetCheckConstraint(modelDef, fieldDef);
                     if (sqlConstraint != null)
                     {
                         sbConstraints.Append(",\n" + sqlConstraint);

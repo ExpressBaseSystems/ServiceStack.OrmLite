@@ -20,6 +20,8 @@ namespace ServiceStack.OrmLite.Tests.Issues
 
         [Reference]
         public ChildSelfRef Child2 { get; set; }
+        
+        public ulong RowVersion { get; set; }
     }
 
     public class ChildSelfRef
@@ -29,8 +31,11 @@ namespace ServiceStack.OrmLite.Tests.Issues
         public string Name { get; set; }
     }
 
-    public class MultipleSelfJoinsWithNullableInts : OrmLiteTestBase
+    [TestFixtureOrmLite]
+    public class MultipleSelfJoinsWithNullableInts : OrmLiteProvidersTestBase
     {
+        public MultipleSelfJoinsWithNullableInts(DialectContext context) : base(context) {}
+
         [Test]
         public void Does_support_multiple_self_joins_with_nullable_ints()
         {

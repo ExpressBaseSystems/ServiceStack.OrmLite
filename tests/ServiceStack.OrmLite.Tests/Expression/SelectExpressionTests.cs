@@ -1,19 +1,22 @@
 ﻿using System;
 using System.Linq;
 using NUnit.Framework;
-using ServiceStack.Common.Tests.Models;
 using ServiceStack.DataAnnotations;
 using ServiceStack.OrmLite.Tests.Shared;
 using ServiceStack.Text;
 
 namespace ServiceStack.OrmLite.Tests.Expression
 {
+
+    [TestFixtureOrmLite]
     public class SelectExpressionTests : ExpressionsTestBase
     {
+        public SelectExpressionTests(DialectContext context) : base(context) {}
+
         [Test]
         public void Can_select_where_and_limit_expression()
         {
-            EstablishContext(20);
+            Init(20);
 
             using (var db = OpenDbConnection())
             {
@@ -131,7 +134,7 @@ namespace ServiceStack.OrmLite.Tests.Expression
 
 
                 partialDto = db.Select(db.From<Shipper>()
-                    .Select("Phone, " + "CompanyName".SqlColumn())
+                    .Select("Phone, " + "CompanyName".SqlColumn(DialectProvider))
                     .Where(x => x.ShipperTypeId == 2));
 
                 Assert.That(partialDto.Map(x => x.Phone),
