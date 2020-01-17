@@ -15,7 +15,6 @@
 
   <ItemGroup>
     <PackageReference Include="System.Memory" Version="4.5.3" />
-    <PackageReference Include="ServiceStack.Common.Core" Version="$(Version)" />
   </ItemGroup>
 
   <ItemGroup Condition=" '$(TargetFramework)' == 'netstandard2.0' ">
@@ -28,6 +27,10 @@
     <PackageReference Include="System.ComponentModel.Primitives" Version="4.3.0" />
     <PackageReference Include="System.Data.SqlClient" Version="4.8.0" />
     <PackageReference Include="System.ComponentModel.Annotations" Version="4.7.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\ServiceStack\src\ServiceStack.Common\ServiceStack.Common.Core.csproj" />
   </ItemGroup>
 
 </Project>
